@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+
+  clickhouse:
+    image: yandex/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    networks:
+      - superset_net
+
+  superset:
+    build:
+      context: ./superset  
+    container_name: superset
+    ports:
+      - "8088:8088"
+    environment:
+      - SUPERSET_SECRET_KEY='QaaUO8e7tBLG74RPrG7YX9kTuXI8E0doxJpO6/gXuXSIMVTtF0BLDp+G'
+    depends_on:
+      - clickhouse
+    networks:
+      - superset_net
+
+  loader:
+    build:
+      context: ./loader
+    container_name: loader
+    environment:
+      PYTHONPATH: /opt/project
+    volumes:
+      - .:/opt/project
+    depends_on:
+      - clickhouse
+    networks:
+      - superset_net
+
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+    networks:
+      - superset_net
+
+  airflow:
+    image: apache/airflow:2.8.3-python3.8
+    container_name: airflow
+    build:
+      context: ./airflow  
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__FERNET_KEY: 'GLLYvkKP9ePWar_KpSfk7gU0u56tVushWlEi2sb3l1s='  
+      AIRFLOW__WEBSERVER__DEFAULT_USER_USERNAME: admin
+      AIRFLOW__WEBSERVER__DEFAULT_USER_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./output:/opt/airflow/output
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com &&
+        airflow webserver &
+        airflow scheduler
+      "
+    networks:
+      - superset_net
+
+volumes:
+  postgres_db:
+
+networks:
+  superset_net:
+
